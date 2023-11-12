@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package ChartographMessenger;
+
+// Define the message for Graph Data
+message GraphData {
+    // Define the type of graph, e.g., bar, line, pie, etc.
+    string graph_type = 1;
+
+    string plotId = 2;
+
+    // Additional graph parameters can be added here if needed.
+}
+
+message Point {
+    double x = 1;
+    double y = 2;
+}
+
+// Define the message for Update Data
+message UpdateData {
+    // Include an identifier for the plot to be updated.
+    string plotId = 1;
+
+    // Data points for updating the graph.
+    repeated Point new_data_points = 2;
+
+    // Additional update parameters can be added here.
+}
+
+// Define the message for the Plot Response
+message PlotResponse {
+    // A simple response indicating success or failure
+    bool success = 1;
+
+    // A message with more details about the response
+    string message = 2;
+
+    // An identifier for the plot that was created
+    string plotId = 3;
+}
+
+// The GraphPlotter service definition.
+service GraphPlotter {
+    // A method to send graph data and receive a response
+    rpc CreatePlot (GraphData) returns (PlotResponse);
+
+    // A method to update an existing plot with new data
+    rpc UpdatePlot (UpdateData) returns (PlotResponse);
+}
