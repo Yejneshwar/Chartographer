@@ -82,6 +82,11 @@ public:
 		ImGui::Begin("Plots");
 		for (const auto& plot : plots) {
 			if (ImGui::TreeNode(plot.first.c_str())) {
+				if (ImGui::Button("Remove")) {
+					plots.erase(plot.first);
+					ImGui::TreePop();
+					break;
+				}
 				for (const auto& point : plot.second.points) {
 					ImGui::Text("X : %f , Y : %f", point.x, point.y);
 				}
