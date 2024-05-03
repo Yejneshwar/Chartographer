@@ -9,22 +9,100 @@
 #include <AbstractApplication.h>
 #include "Renderer/BatchRenderer.h"
 
+enum IndexMode {
+	CONTINUOUS,
+	DISCRETE
+};
+
 struct lines {
 	std::vector<glm::vec3> points;
 	std::vector<unsigned int> indices;
 
+	void switchIndexMode() {
+		if (indexMode == CONTINUOUS) {
+			indexMode = DISCRETE;
+			indices.clear();
+			for (int i = 0; i < points.size(); i++) {
+				indices.push_back(i);
+			}
+		}
+		else if (indexMode == DISCRETE) {
+			indexMode = CONTINUOUS;
+			indices.clear();
+			if (points.size() == 1) return;
+			for (int i = 0; i < points.size() - 1; i++) {
+				indices.push_back(((unsigned int)i));
+				indices.push_back(((unsigned int)i + 1));
+			}
+		}
+	}
+
+	IndexMode getIndexMode() {
+		return indexMode;
+	}
+
 	void addPoint(glm::vec3 point) {
 		points.push_back(point);
 		
-		if (points.size() == 1) {
+		if (points.size() == 1 && indexMode == CONTINUOUS) {
 			return;
 		}
-		indices.push_back(((unsigned int)points.size() - 2));
-		indices.push_back(((unsigned int)points.size() - 1));
+		addIndex();
+	}
+private:
+	IndexMode indexMode = CONTINUOUS;
+
+	void addIndex() {
+		if (indexMode == CONTINUOUS) {
+			indices.push_back(((unsigned int)points.size() - 2));
+			indices.push_back(((unsigned int)points.size() - 1));
+		}
+		else if (indexMode == DISCRETE) {
+			indices.push_back(((unsigned int)points.size() - 1));
+		}
 	}
 };
 
-static std::map<std::string, lines> plots;
+
+
+struct triangles {
+	std::set<glm::vec3, Graphics::BatchRenderer::Vec3Compare> points;
+	std::vector<uint32_t> indices;
+	std::vector<glm::vec4> colors;
+
+	void addTriangle(glm::vec3 point1, glm::vec3 point2, glm::vec3 point3, glm::vec4 color) {
+
+		auto itrp1 = points.insert(point1);
+		if (itrp1.second) {
+			indices.push_back((points.size() - 1));
+		}
+		else {
+			indices.push_back((std::distance(points.begin(), itrp1.first)));
+		}
+
+		auto itrp2 = points.insert(point2);
+		if (itrp2.second) {
+			indices.push_back((points.size() - 1));
+		}
+		else {
+			indices.push_back((std::distance(points.begin(), itrp2.first)));
+		}
+
+		auto itrp3 = points.insert(point3);
+		if (itrp3.second) {
+			indices.push_back((points.size() - 1));
+		}
+		else {
+			indices.push_back((std::distance(points.begin(), itrp3.first)));
+		}
+
+		colors.push_back(color);
+	}
+
+};
+
+static std::map<std::string, lines> line_plots;
+static std::map<std::string, triangles> triangle_plots;
 
 class ChartoGraphMessengerImpl : public ChartographMessenger::GraphPlotter::Service {
 	grpc::Status CreatePlot(grpc::ServerContext* context, const ChartographMessenger::GraphData* request, ChartographMessenger::PlotResponse* response) override {
@@ -34,7 +112,15 @@ class ChartoGraphMessengerImpl : public ChartographMessenger::GraphPlotter::Serv
 			return plotIdError(response);
 		}
 
-		plots.insert({ request->plotid(), lines()});
+		if (request->graph_type() == ChartographMessenger::GraphType::LINE) {
+			line_plots.insert({ request->plotid(), lines() });
+		}
+		else if (request->graph_type() == ChartographMessenger::GraphType::TRIANGLE) {
+			triangle_plots.insert({ request->plotid(), triangles() });
+		}
+		else {
+			return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Graph Type");
+		}
 
 		response->set_plotid(request->plotid());
 		response->set_success(true);
@@ -48,9 +134,30 @@ class ChartoGraphMessengerImpl : public ChartographMessenger::GraphPlotter::Serv
 			return plotIdError(response);
 		}
 
-		for (ChartographMessenger::Point point : request->new_data_points()) {
-			plots[request->plotid()].addPoint(glm::vec3(point.x(),point.y(),0.0f));
+		if (request->has_new_data_points()) {
+			for (ChartographMessenger::Point point : request->new_data_points().points()) {
+				line_plots[request->plotid()].addPoint(glm::vec3(point.x(), point.y(), 0.0f));
+			}
 		}
+		
+		if (request->has_new_triangle()) {
+			triangle_plots[request->plotid()].addTriangle(
+				glm::vec3(request->new_triangle().p1().x(), request->new_triangle().p1().y(), 0.0f),
+				glm::vec3(request->new_triangle().p2().x(), request->new_triangle().p2().y(), 0.0f),
+				glm::vec3(request->new_triangle().p3().x(), request->new_triangle().p3().y(), 0.0f),
+				glm::vec4(request->new_triangle().color().r(), request->new_triangle().color().g(), request->new_triangle().color().b(), request->new_triangle().color().a()));
+		}
+
+		if (request->has_new_triangles()) {
+			for (ChartographMessenger::Triangle triangle : request->new_triangles().triangles()) {
+				triangle_plots[request->plotid()].addTriangle(
+					glm::vec3(triangle.p1().x(), triangle.p1().y(), 0.0f), 
+					glm::vec3(triangle.p2().x(), triangle.p2().y(), 0.0f), 
+					glm::vec3(triangle.p3().x(), triangle.p3().y(), 0.0f),
+					glm::vec4(triangle.color().r(), triangle.color().g(), triangle.color().b(), triangle.color().a()));
+			}
+		}
+
 		std::string message("Point added");
 		response->set_plotid(request->plotid());
 		response->set_success(true);
@@ -60,6 +167,10 @@ class ChartoGraphMessengerImpl : public ChartographMessenger::GraphPlotter::Serv
 private:
 	inline grpc::Status plotIdError(ChartographMessenger::PlotResponse* response) {
 		return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Plot Id");
+	}
+
+	inline grpc::Status graphTypeError(ChartographMessenger::PlotResponse* response) {
+		return grpc::Status(grpc::StatusCode::INVALID_ARGUMENT, "Graph Type");
 	}
 };
 
@@ -73,17 +184,26 @@ public:
 	void OnAttach() {}
 
 	void OnDrawUpdate() {
-		for (const auto& plot : plots) {
+		for (const auto& plot : line_plots) {
 			Graphics::BatchRenderer::DrawLines(plot.second.points, plot.second.indices,glm::vec4(1.0));
+		}
+
+		for (const auto& plot : triangle_plots) {
+			Graphics::BatchRenderer::DrawMesh(plot.second.points, plot.second.indices, plot.second.colors);
 		}
 	}
 
 	void OnImGuiRender() {
 		ImGui::Begin("Plots");
-		for (const auto& plot : plots) {
+		for (auto& plot : line_plots) {
 			if (ImGui::TreeNode(plot.first.c_str())) {
+				if (ImGui::Button("Switch Index mode")) {
+					plot.second.switchIndexMode();
+				}
+				ImGui::SameLine();
+				ImGui::Text("%s", plot.second.getIndexMode() == CONTINUOUS ? "Continuous" : "Discrete");
 				if (ImGui::Button("Remove")) {
-					plots.erase(plot.first);
+					line_plots.erase(plot.first);
 					ImGui::TreePop();
 					break;
 				}

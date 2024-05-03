@@ -2,13 +2,20 @@ syntax = "proto3";
 
 package ChartographMessenger;
 
+enum GraphType {
+	BAR = 0;
+	LINE = 1;
+	PIE = 2;
+	SCATTER = 3;
+	TRIANGLE = 4;
+}
+
 // Define the message for Graph Data
 message GraphData {
     // Define the type of graph, e.g., bar, line, pie, etc.
-    string graph_type = 1;
+    GraphType graph_type = 1;
 
     string plotId = 2;
-
     // Additional graph parameters can be added here if needed.
 }
 
@@ -17,13 +24,40 @@ message Point {
     double y = 2;
 }
 
+message Points {
+    repeated Point points = 1;
+}
+
+message Color {
+    float r = 1;
+	float g = 2;
+	float b = 3;
+    float a = 4;
+}
+
+message Triangle {
+    Point p1 = 1;
+	Point p2 = 2;
+	Point p3 = 3;
+
+    Color color = 4;
+}
+
+message Triangles {
+	repeated Triangle triangles = 1;
+}
+
 // Define the message for Update Data
 message UpdateData {
     // Include an identifier for the plot to be updated.
     string plotId = 1;
 
     // Data points for updating the graph.
-    repeated Point new_data_points = 2;
+    oneof oneof_data {
+        Points new_data_points = 2;
+        Triangle new_triangle = 3;
+        Triangles new_triangles = 4;
+    }
 
     // Additional update parameters can be added here.
 }
